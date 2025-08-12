@@ -1,0 +1,25 @@
+[project]
+name='s4'
+version='0.1.0'
+description='A Super Simple SQLite Server (s4) made with Flask.'
+license = {text = 'MIT License'}
+requires-python = ">=3.11"
+dependencies = [
+    'Flask',
+]
+
+
+[project.scripts]
+s4 = 's4.cli:s4'
+
+
+[tool.setuptools.packages.find]
+where = ['src']
+include = ['s4']
+
+
+[build-system]
+requires = [
+    'setuptools >= 61.0'
+]
+build-backend = 'setuptools.build_meta'
