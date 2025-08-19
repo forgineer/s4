@@ -12,15 +12,6 @@ from typing import Literal
 #from queue import Queue
 
 
-def generate_secret_key() -> str:
-    """
-    Generates a random secret key for Flask and s4 DB access.
-
-    :return: A securely generated secret key.
-    """
-    return secrets.token_urlsafe(32)
-
-
 def create_config_file(instance_path: str) -> dict:
     """
     Create a configuration file for s4 with a random secret key and database file path.
@@ -29,7 +20,7 @@ def create_config_file(instance_path: str) -> dict:
     :return: A dictionary containing the configuration settings.
     """
     _config: dict = {
-        'SECRET_KEY': generate_secret_key(),
+        'SECRET_KEY': secrets.token_urlsafe(32),  # Generate a random secret key
         'DATABASE': os.path.join(instance_path, 's4.db')
     }
 
@@ -130,18 +121,18 @@ def create_app(log_level: Literal['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL
                 'error': 'Invalid secret key.'
             }), 401
 
+        if 'db' not in g:
+            g.db = sqlite3.connect(app.config['DATABASE'])
+            g.db.row_factory = dict_factory
 
-    @app.route('/connect')
+
+    @app.route('/api/connect')
     def connect() -> str:
         """
         Verify the connection to the s4 server.
         
         :return: A success message.
         """
-        if 'db' not in g:
-            g.db = sqlite3.connect(app.config['DATABASE'])
-            g.db.row_factory = dict_factory
-        
         return 'Connection to s4 server established successfully!'
 
 
@@ -152,6 +143,21 @@ def create_app(log_level: Literal['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL
         _sql: str | bool = request.json.get('sql', False)
         
         return s4_sql(_sql) if _sql else {'error': 'No SQL query provided.'}
+
+
+    @app.teardown_appcontext
+    def teardown(exception: Exception) -> None:
+        """
+        Close the database connection after processing a request.
+
+        :param exception: The exception that occurred during request processing.
+        :return: None.
+        """
+        db: sqlite3.Connection = g.pop('db', None)
+
+        if db is not None:
+            db.close()
+            app.logger.debug('Database connection closed.')
 
     return app
 

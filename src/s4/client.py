@@ -25,10 +25,10 @@ class s4:
         })
 
         # Construct base URLs
-        self.sql_url: str = f'{self.s4_url}/api/sql'
+        self.api_url: str = f'{self.s4_url}/api'
 
         # Verify the connection to the s4 server
-        self.verify_connection()
+        self._verify_connection()
 
 
     def _response_handler(self, response: requests.Response) -> dict:
@@ -41,29 +41,30 @@ class s4:
         pass
 
 
-    def verify_connection(self) -> None:
+    def _verify_connection(self) -> None:
         """
         Verify the connection to the s4 server.
 
         :return: None.
         """
-        _response = self.session.get(self.s4_url)
+        _response = self.session.get(f'{self.api_url}/connect')
 
         if _response.status_code != 200:
             raise ConnectionError(f'Failed to connect to s4 server: {_response.text}')
         
-        logging.debug(f'Connected to s4 server at {self.s4_url}: {_response.text}')
+        logging.debug(f'{self.s4_url}: {_response.text}')
 
 
     def sql(self, sql: str) -> dict:
         """
-        Execute an SQL query on the s4 server.
+        Execute an SQL statement on the s4 server.
 
-        :param sql_query: The SQL query to execute.
-        :param method: The HTTP method to use for the request (GET, POST, PUT, DELETE, PATCH).
+        :param sql: The SQL statement to execute.
         :return: The response data as a dictionary.
         """
-        _response: requests.Response = self.session.post(self.sql_url, json={'sql': sql})
+        _response: requests.Response = self.session.post(f'{self.api_url}/sql', json={'sql': sql})
 
-        logging.debug(f'Response Status Code: {_response.status_code}')
-        logging.debug(f'Response JSON: {_response.json()}')
+        if _response.status_code != 200:
+            raise ValueError(f'Failed to execute SQL query: {_response.text}')
+        
+        return _response.json()
