@@ -1,12 +1,11 @@
 import click
-import functools
 import json
 import os
 import secrets
 import sqlite3
 #import threading
 
-from flask import Flask, jsonify, request
+from flask import Flask, g, jsonify, request, session
 from logging.config import dictConfig
 from s4 import __version__
 from typing import Literal
@@ -84,14 +83,35 @@ def create_app(log_level: Literal['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL
 
     def dict_factory(cursor: sqlite3.Cursor, row: tuple) -> dict:
         """
-        Convert a row from the database cursor into a dictionary.
+        Convert rows from the database cursor into dictionaries.
         
         :param cursor: The database cursor.
         :param row: The row to convert.
-        :return: A dictionary representing the row.
+        :return: A dictionary representing the row(s).
         """
         fields = [column[0] for column in cursor.description]
         return {key: value for key, value in zip(fields, row)}
+    
+
+    def s4_sql(sql: str) -> dict:
+        """
+        Execute a SQL query and return the results.
+
+        :param sql: The SQL query to execute.
+        :return: A dictionary containing the results of the SQL query.
+        """
+        cursor: sqlite3.Cursor = g.db.cursor()
+
+        try:
+            cursor.execute(sql)
+            g.db.commit()
+            results = cursor.fetchall()
+            return {'sqlResponse': results}
+        except sqlite3.Error as e:
+            app.logger.error(f'SQL Error: {str(e)}')
+            return {'error': str(e)}
+        finally:
+            cursor.close()
 
 
     # Create and configure the app
@@ -99,7 +119,7 @@ def create_app(log_level: Literal['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL
 
 
     @app.before_request
-    def validate_key() -> None:
+    def validate() -> None:
         """
         Validate the secret key before processing any request.
 
@@ -111,9 +131,18 @@ def create_app(log_level: Literal['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL
             }), 401
 
 
-    @app.route('/')
-    def verify_connection() -> str:
-        return 'Welcome to s4! The server is running!'
+    @app.route('/connect')
+    def connect() -> str:
+        """
+        Verify the connection to the s4 server.
+        
+        :return: A success message.
+        """
+        if 'db' not in g:
+            g.db = sqlite3.connect(app.config['DATABASE'])
+            g.db.row_factory = dict_factory
+        
+        return 'Connection to s4 server established successfully!'
 
 
     @app.route('/api/sql', methods=['POST'])
@@ -121,39 +150,8 @@ def create_app(log_level: Literal['DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL
         app.logger.debug(f'Request JSON: {request.json}')
 
         _sql: str | bool = request.json.get('sql', False)
-
-        if not _sql:
-            return jsonify({
-                'error': 'No SQL query provided.'
-            }), 400
         
-        conn: sqlite3.Connection = sqlite3.connect(app.config['DATABASE'])
-        conn.row_factory = dict_factory
-        results: list[dict] = []
-        response: dict = {}
-        cursor: sqlite3.Cursor = conn.cursor()
-
-        try:
-            cursor.execute(_sql)
-            conn.commit()
-            results = cursor.fetchall()
-
-            cursor.close()
-            conn.close()
-
-            response = {
-                'sqlResponse': results
-            }
-
-            return response, 200
-        except sqlite3.Error as e:
-            cursor.close()
-            conn.close()
-            app.logger.error(f'SQL Error: {str(e)}')
-
-            return jsonify({
-                'error': str(e)
-            }), 500
+        return s4_sql(_sql) if _sql else {'error': 'No SQL query provided.'}
 
     return app
 
@@ -169,8 +167,12 @@ def cli(version: bool, configure: bool, run: bool, log_level: str, in_memory: bo
     """
     The s4 command-line interface utility. Used for initial setup and other tasks.
 
-    :param version: Returns the current version of s4 installed.
-    :param run: Starts the s4 server.
+    :param version: If set, prints the current version of s4.
+    :param configure: If set, configures the s4 server.
+    :param run: If set, runs the s4 server.
+    :param log_level: Sets the log level for the s4 server.
+    :param in_memory: If set, runs the s4 server with an in-memory database.
+    :param port: The port to run the s4 server on. Default is 5000.
     :return: None
     """
     if version:
